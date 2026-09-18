@@ -1,8 +1,6 @@
 # Jev for Piximi
 
-A browser assistant dedicated to [Piximi](https://piximi.app/), the image annotation, classification, segmentation, and measurement application.
-Describe one analysis goal; TypeSafe's Jev chooses operations on observed Piximi controls.
-A text model supplies field values only when typing is needed.
+> [!NOTE] > **An experimental AI assistant for Piximi.** > > Give it a request like "load the U2OS example, train for three epochs, and show the evaluation," and it operates [Piximi](https://piximi.app/) in your existing Chrome browser. > Jev is an AI model from TypeSafe that chooses which controls to use; a separate language model fills in text fields. > It reads page controls, not microscopy images, and its dashboard shows screenshots and an action history so you can follow its work. > One [verified test](docs/performance.md) completed that workflow in about 10 seconds; broader Piximi workflows still need testing.
 
 ## Run
 
