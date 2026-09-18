@@ -1,55 +1,31 @@
-# Faster on the real web
+# Piximi validation
 
-The current video completes the Google Flights task in **7.073 seconds at 1×**. It starts with one natural-language goal and uses dynamic controls throughout. Jev selects operation + target in one request; Mercury generates the city strings when TYPE_TEXT is selected.
+The first verified Piximi workflow was exercised on September 18, 2026.
+This is one successful browser run, not a reliability benchmark.
 
-[Video](demo.mp4) · [Recording measurements](flights-measurement.json) · [Matched run measurements](full-speed-measurement.json)
+The default natural-language goal loaded the human U2OS example, trained an image classifier for three epochs with existing labels, and opened evaluation results.
+The verified run took **9,950 ms**, with **9 executed actions, 14 Jev requests, and 1 text-helper request**.
+Timing starts at the first decision cycle after opening Piximi and includes loading waits, model calls, training, and evaluation.
+It excludes initial browser connection and page load.
+The unmodified text helper supplied the epoch value `3`.
+No model-generated selectors, scripted click sequence, or manually entered training value was used.
 
-## Matched runtime comparison
+[Recorded outcome and action sequence](piximi-validation.json) contains the actual models, call counts, metrics, and verification checks.
+The full local trace is `artifacts/piximi-verified.json` (ignored).
+A prior rewrite trial reached the same requested training/evaluation outcome but failed verification because the metric parser did not handle trailing colons or `N/A` values.
+Its local trace is `artifacts/piximi-first.json`; it used 11 Jev requests and 1 text request over 8 actions.
+The parser was corrected, and the successful run started in a new tab.
 
-Six alternating runs, one task, one existing Chrome profile. Both arms used the same natural-language goal, independent result checker, 1120×780 viewport, TypeSafe `jev-1.13.0`, `inception/mercury-2.5`, disabled text reasoning, and action/request budgets. Initial navigation is excluded in both arms. Each run creates and closes its own tab. All six attempts are included; no provider or verification failures occurred.
+Verification checks the U2OS project name, epoch setting, number of rendered training points, visible evaluation view, reported metrics, and idle state.
+The three-epoch evidence comes from the training plot, not a model's completion choice.
+Undefined class metrics stay `N/A`; they are never converted to numeric scores.
+The example is too small to establish classifier quality.
 
-| Pair | Original runtime | Optimized runtime | Verified |
-| --- | ---: | ---: | --- |
-| 1 | 11.214 s | 6.964 s | Both |
-| 2 | 8.984 s | 7.913 s | Both |
-| 3 | 9.450 s | 7.092 s | Both |
-| **Median** | **9.450 s** | **7.092 s** | **3/3 each** |
+The final checks include 38 offline tests, 23 local-browser guard checks, Ruff, both JavaScript syntax checks, and a package build.
+The browser checks include tooltip-wrapper labels, selected tabs, clipped fields, nested scrolling, freshness, and occlusion.
+The inspector was checked at 1120px and 390px widths, including attachment to an existing Piximi evaluation tab.
+No model APIs are called by the offline or local-browser checks.
 
-The optimized runtime was faster in all three pairs. Median task time was **25.0% lower**, median TypeSafe requests fell **22 → 17**, and median browser protocol calls fell **1,092 → 101**. Three pairs are too few for a strong statistical claim (two-sided sign-test p = 0.25). This is a small controlled-input comparison, not a broad agent benchmark; Google, network responses, routing, and browser caches remain live.
-
-The original arm is the frozen source from `68c077bf79caca4e817b8e8a5854b2efa0c81ff6`. Both arms use Mercury so the runtime comparison does not conflate a helper-model change with code changes. Per-run source hashes, model settings, token counts, helper costs, browser version, protocol counts, and verification results are in the measurement JSON.
-
-## Where the time went
-
-The original loop invalidated decisions on every DOM mutation, including animations. It also read the accessibility tree repeatedly and resolved hundreds of DOM nodes. The new snapshot reads common HTML/ARIA controls in one browser call. Click guards compare the selected target and nearby context, plus document/form state. Current geometry and hit-testing still run before input.
-
-A brief event-based combobox wait lets suggestions arrive before asking Jev to choose from an incomplete popup. Text comes from an actual LLM: the recorded run generated **Zurich in 581 ms** and **London in 346 ms**. Native text replacement was also fixed to issue the browser's select-all command explicitly.
-
-The recording contains **17 Jev requests**, **10 interactions plus one explicit WAIT**, and **two helper calls**. Median Jev latency was **178 ms**. Search executed at **5.217 s**; final verified completion was **7.073 s**. That final interval includes Google's results loading, state changes, and the completion decision. It stays in the video.
-
-Timing begins at the first prediction after initial homepage observation and ends at the accepted DONE choice. It includes text generation, model requests, browser work, stale decisions, and loading. Browser setup, initial navigation, and fresh independent post-run verification are outside the clock. The video contains 186 continuous screencast frames plus the initial screenshot, uses original timestamps, has no opening hold, and adds a 0.5-second final hold. Only the top account/navigation strip is cropped.
-
-The recording reports 90,558 TypeSafe input tokens and 6,325 output tokens across all requests. OpenRouter reported **$0.00006272** for the two text calls. That is the text-helper charge, not total task cost: the TypeSafe responses contain token counts without a billed dollar amount, and browser costs are excluded.
-
-## Other checks
-
-| Task | Time | Independent result |
-| --- | ---: | --- |
-| Wikipedia: open Gödel’s incompleteness theorems | 2.798 s | Exact article URL |
-| Local hotel fixture: search Lisbon, Design, Free cancellation, open Casa Flora | 1.896 s | Property plus all three applied filters |
-
-These are separate smoke checks, not matched speed comparisons. Local browser checks cover moved/replaced/hidden/disabled controls, field and checkbox properties, changed nearby context, overlay blocking, native-select execution, real text replacement, autocomplete arrival, and navigation. Offline tests cover the model contract, stale retries, interrupted mutations, helper validation, and independent trip verification.
-
-After the timed runs, native-select interruption handling was tightened: uncertain mutation results stop instead of being treated as retryable stale reads. Flights does not exercise native SELECT. Its timing and recording hashes are retained unchanged; the final failure path is covered by offline fault injection and local browser checks.
-
-## Development attempts retained
-
-Before freezing the candidate, the original runtime passed once in 9.302 s. Two accessibility-tree/semantic-guard candidates took 9.395 s and 10.157 s. The first direct-DOM candidate took 8.697 s but failed independent verification because name/value extraction was incomplete. Recursive labels and combobox values fixed that failure; subsequent verified diagnostics took 8.051, 8.631, 8.395, 8.385, and 7.741 s. A Mercury diagnostic passed in 7.559 s. These are changed-code development attempts, not the matched comparison above.
-
-A six-call helper probe used the two real flight-field contexts with Gemini 2.5 Flash Lite, Gemini 3.1 Flash Lite, and Mercury 2.5. All returned the correct values in this tiny probe. Mercury then passed the live Flights, Wikipedia, and local filter checks. This does not establish general semantic accuracy. Earlier probes had rejected a model that swapped origin/destination and another that emitted commentary instead of valid JSON.
-
-The previous 11.387-second recording and post-recording 12.898-second policy regression are described in the [original performance report](https://github.com/browser-use/jev-ultrafast/blob/68c077bf79caca4e817b8e8a5854b2efa0c81ff6/docs/performance.md). The older prepared-step prototype remains in [performance-prepared.md](performance-prepared.md). Raw attempts and original-timestamp frames remain in ignored local artifacts.
-
-## Limits
-
-This DOM reader supports common HTML and ARIA controls; it does not implement the full accessible-name algorithm or traverse shadow roots/frames. Scoped click guards deliberately allow unrelated visible updates. Canvas, uploads, new tabs, nested scrolling, and arbitrary keyboard widgets remain unsupported. A valid operation can still be wrong, and DONE is never independent evidence of success.
+The generic-agent trials before the rewrite failed on Piximi loading/navigation and default epoch handling.
+Their temporary traces remain local; they are not included in the successful rewrite count.
+Historical Flights and Wikipedia timings do not describe this implementation.

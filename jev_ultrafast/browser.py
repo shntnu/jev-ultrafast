@@ -18,14 +18,16 @@ class StalePage(ValueError):
 
 
 class Browser:
-    def __init__(self, url):
+    def __init__(self, url, *, target_id=None):
         ensure_daemon()
-        self.target = cdp("Target.createTarget", url="about:blank", background=True)["targetId"]
+        self.owned = target_id is None
+        self.target = target_id or cdp("Target.createTarget", url="about:blank", background=True)["targetId"]
         self.session = cdp("Target.attachToTarget", targetId=self.target, flatten=True)["sessionId"]
         self.call("Emulation.setDeviceMetricsOverride", width=1120, height=780, deviceScaleFactor=1, mobile=False)
         # Keep rAF/menus rendering in an owned background tab, without activating the user's Chrome tab.
         self.call("Emulation.setFocusEmulationEnabled", enabled=True)
-        self.call("Page.navigate", url=url)
+        if self.owned:
+            self.call("Page.navigate", url=url)
         deadline = time.monotonic() + 15
         while time.monotonic() < deadline:
             if self.evaluate("document.readyState") == "complete":
@@ -33,7 +35,7 @@ class Browser:
             time.sleep(0.02)
 
     def call(self, method, **params):
-        return cdp(method, session_id=self.session, **params)
+        return cdp(method, session_id=self.session, _response_timeout=30, **params)
 
     def evaluate(self, expression):
         response = self.call("Runtime.evaluate", expression=expression, returnByValue=True)
@@ -53,7 +55,7 @@ class Browser:
                       const autocomplete=action.kind==='fill' && field?.getAttribute('role')==='combobox';
                       let frames=0, stopped=false;
                       const finish=()=>{stopped=true;resolve()};
-                      setTimeout(finish,autocomplete ? 200 : 50);
+                      setTimeout(finish,autocomplete ? 200 : 250);
                       const ready=()=>{
                         if (stopped) return;
                         const ids=(field?.getAttribute('aria-controls')||field?.getAttribute('aria-owns')||'')
@@ -86,7 +88,7 @@ class Browser:
         raise StalePage("Page did not settle")
 
     def fresh(self, page, action=None):
-        if action is not None and action["kind"] in {"click", "select"}:
+        if action is not None and action["kind"] in {"click", "select", "scroll"}:
             node = action["node"]
             if type(node) is not int:
                 return False
@@ -101,13 +103,13 @@ class Browser:
         if not self.fresh(page, action):
             raise StalePage("Page changed since this decision. Observe again.")
         if action["kind"] == "wait":
-            time.sleep(0.1)
+            time.sleep(1)
         result = browser_operation({"operation": "act", "session": self.session, "action": action, "text": text})
         self.after_input = action if action["kind"] != "wait" else None
         return result
 
     def close(self):
-        if self.target:
+        if self.target and self.owned:
             cdp("Target.closeTarget", targetId=self.target)
             self.target = None
 
@@ -122,7 +124,7 @@ def browser_operation(request):
     session = request["session"]
 
     def call(method, **params):
-        return cdp(method, session_id=session, **params)
+        return cdp(method, session_id=session, _response_timeout=30, **params)
 
     def evaluate(expression):
         result = call("Runtime.evaluate", expression=expression, returnByValue=True)
@@ -135,9 +137,7 @@ def browser_operation(request):
     if operation == "act":
         action = request["action"]
         kind = action["kind"]
-        if kind == "scroll":
-            call("Input.dispatchMouseEvent", type="mouseWheel", x=550, y=650, deltaX=0, deltaY=action["delta"])
-        elif kind != "wait":
+        if kind != "wait":
             if type(action["node"]) is not int:
                 raise ValueError("Invalid observed node")
             # Code-owned node IDs refer to actual observed elements, never model-generated selectors.
@@ -146,8 +146,8 @@ def browser_operation(request):
               if (!e?.isConnected || e.matches(':disabled') || e.closest('[aria-disabled="true"],[inert]') ||
                   !e.checkVisibility({checkOpacity:true,checkVisibilityCSS:true})) return null;
               if (action.kind==='fill' && (e.readOnly || e.getAttribute('aria-readonly')==='true')) return null;
-              const r=e.getBoundingClientRect(), x=r.x+r.width/2, y=r.y+r.height/2;
-              if (!r.width || !r.height || x<0 || y<0 || x>=innerWidth || y>=innerHeight) return null;
+              const r=window.__jevFast.rect(e), x=r.x+r.w/2, y=r.y+r.h/2;
+              if (r.w<=0 || r.h<=0 || x<0 || y<0 || x>=innerWidth || y>=innerHeight) return null;
               if (!e.contains(document.elementFromPoint(x,y))) return null;
               if (action.kind==='select') {
                 if (e.tagName!=='SELECT' || ![...e.options].some(o=>o.value===action.value &&
@@ -162,7 +162,10 @@ def browser_operation(request):
                 if kind == "select":
                     raise RuntimeError("Dropdown execution was not confirmed; inspect before retrying.")
                 raise StalePage("Target changed or is covered. Observe again.")
-            if kind != "select":
+            if kind == "scroll":
+                call("Input.dispatchMouseEvent", type="mouseWheel", x=target["x"], y=target["y"],
+                     deltaX=0, deltaY=action["delta"])
+            elif kind != "select":
                 x, y = target["x"], target["y"]
                 for event in ("mousePressed", "mouseReleased"):
                     call("Input.dispatchMouseEvent", type=event, x=x, y=y, button="left", clickCount=1)

@@ -14,7 +14,7 @@ from jev_ultrafast.browser import StalePage, browser_operation, fingerprint
 
 def page():
     state = {
-        "url": "https://example.test/",
+        "url": "https://piximi.app/",
         "title": "Search",
         "text": "Search",
         "scroll": {"y": 0},
@@ -276,32 +276,6 @@ def test_fingerprint_tracks_values_and_identity_not_screenshots():
     assert fingerprint(p) != fingerprint(other)
 
 
-@pytest.mark.parametrize("changed", ["Departure", "Where from?", "Where to?", "year"])
-def test_flight_verification_rejects_wrong_trip(changed):
-    from examples.flights import verify
-
-    actual = {
-        "url": "https://www.google.com/travel/flights/search?tfs=example",
-        "text": "Track prices from Zürich to London departing 2026-09-20",
-        "actions": [
-            {"label": k, "value": v}
-            for k, v in [
-                ("Change ticket type. One way", "One way"),
-                ("Where from?", "Zürich"),
-                ("Where to?", "London"),
-                ("Departure", "Sun, Sep 20"),
-                ("Nonstop flight on Sunday, September 20. Select flight", ""),
-            ]
-        ],
-    }
-    assert verify(actual)["passed"]
-    if changed == "year":
-        actual["text"] = actual["text"].replace("2026", "2027")
-    else:
-        next(a for a in actual["actions"] if a["label"] == changed)["value"] = "wrong"
-    assert not verify(actual)["passed"]
-
-
 @pytest.mark.parametrize(
     "content", ["Thinking: Zurich", '{"text":null}', '{"text":"Zurich","extra":true}', '{"text":123}']
 )
@@ -313,8 +287,107 @@ def test_text_helper_rejects_invalid_values(monkeypatch, content):
 
 
 def test_navigation_during_prediction_reobserves_without_action(runner):
-    runner.state["browser"].fresh.side_effect = StalePage("Document navigating")
+    runner.state["browser"].observe.side_effect = [StalePage("Document navigating"), page()]
     runner.command("tick")
     assert runner.state["status"] == "ready"
     assert runner.state["decision"] is None
     runner.state["browser"].act.assert_not_called()
+
+
+def test_timeout_is_logged_and_never_automatically_replayed(runner):
+    runner.state["decision"] = decision("e3")
+    runner.state["browser"].act.side_effect = TimeoutError("CDP timed out")
+    with pytest.raises(TimeoutError):
+        runner.command("act", {"fingerprint": runner.state["page"]["fingerprint"]})
+    assert runner.state["history"][-1]["outcome"] == "uncertain"
+    assert runner.state["status"] == "uncertain"
+    assert list(runner.run()) == []
+    runner.state["browser"].act.assert_called_once()
+    runner.command("resume")
+    assert runner.state["status"] == "ready"
+    assert runner.state["decision"] is None
+    runner.state["browser"].act.assert_called_once()
+
+
+def test_busy_piximi_waits_without_paid_model_calls(runner, monkeypatch):
+    p = page()
+    p["piximi"] = {"busy": True}
+    runner.state["browser"].observe.return_value = p
+    choose = Mock()
+    monkeypatch.setattr(loop, "choose", choose)
+    monkeypatch.setattr(loop.time, "sleep", Mock())
+    runner.command("tick")
+    assert runner.state["status"] == "waiting"
+    choose.assert_not_called()
+    runner.state["browser"].act.assert_not_called()
+
+
+def test_training_start_is_not_offered_before_requested_epochs_are_set(runner, monkeypatch):
+    p = page()
+    p["actions"][2]["label"] = "Fit Classifier"
+    p["piximi"] = {"busy": False, "epochs": "10"}
+    runner.state["browser"].observe.return_value = p
+    runner.state["expected_epochs"] = 3
+    choose = Mock(return_value=decision("wait"))
+    monkeypatch.setattr(loop, "choose", choose)
+    runner.command("predict")
+    assert not any(a["label"] == "Fit Classifier" for a in choose.call_args.args[0]["actions"])
+
+
+def test_model_done_without_proof_is_not_success(runner):
+    runner.state["decision"] = decision("DONE")
+    runner.state["expected_epochs"] = 3
+    runner.command("act", {"fingerprint": runner.state["page"]["fingerprint"]})
+    assert runner.state["status"] == "needs_review"
+    assert not runner.state["verification"]["passed"]
+
+
+def test_scroll_targets_are_operation_specific():
+    actions = [
+        {"id": "down", "node": 1, "role": "region", "label": "Dialog", "kind": "scroll", "delta": 400},
+        {"id": "up", "node": 1, "role": "region", "label": "Dialog", "kind": "scroll", "delta": -400},
+    ]
+    elements, targets, _ = model.action_space(actions)
+    assert len(elements) == 1
+    assert targets["SCROLL"]["1:down"]["id"] == "down"
+    assert targets["SCROLL"]["1:up"]["id"] == "up"
+
+
+@pytest.mark.parametrize("url", ["https://example.com", "http://piximi.app", "https://piximi.app.evil.test"])
+def test_other_sites_are_rejected(url):
+    from jev_ultrafast.piximi import require_piximi
+
+    with pytest.raises(ValueError, match="only"):
+        require_piximi(url)
+
+
+def test_verification_requires_actual_training_and_numeric_evaluation():
+    from jev_ultrafast.piximi import verify_training
+
+    evidence = dict(url="https://piximi.app/project", project="Human U2OS cells - example project",
+                    epochs="3", completed_epochs=3, evaluation=True, busy=False,
+                    metrics={k: 0.5 for k in ("Accuracy", "Cross entropy", "Precision", "Recall", "F1-score")})
+    assert verify_training(evidence, 3)["passed"]
+    for changed in ({"epochs": "10"}, {"completed_epochs": None}, {"evaluation": False}, {"metrics": {}}):
+        assert not verify_training({**evidence, **changed}, 3)["passed"]
+
+
+def test_attach_rejects_other_sites_before_touching_browser(monkeypatch):
+    browser = Mock()
+    monkeypatch.setattr(loop, "Browser", browser)
+    monkeypatch.setattr(loop, "cdp", Mock(return_value={"targetInfo": {"url": "https://example.com"}}))
+    with pytest.raises(ValueError, match="only"):
+        loop.Agent("Inspect the project", target_id="other-tab")
+    browser.assert_not_called()
+
+
+def test_verification_preserves_na_metrics_without_inventing_numbers():
+    from jev_ultrafast.piximi import verify_training
+
+    evidence = dict(url="https://piximi.app/project", project="U2OS example project", epochs="3",
+                    completed_epochs=3, evaluation=True, busy=False,
+                    metrics={"Accuracy": 1.0, "Cross entropy": 0.0,
+                             "Precision": "N/A", "Recall": "N/A", "F1-score": "N/A"})
+    assert verify_training(evidence, 3)["passed"]
+    evidence["metrics"]["Accuracy"] = float("nan")
+    assert not verify_training(evidence, 3)["passed"]

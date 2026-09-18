@@ -1,6 +1,5 @@
-"""Jev chooses an observed action. Code owns execution."""
+"""A Piximi assistant with observed actions and independent outcome evidence."""
 
 from .agent import Agent
-from .browser import Browser
 
-__all__ = ["Agent", "Browser"]
+__all__ = ["Agent"]

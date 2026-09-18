@@ -3,12 +3,7 @@ const token = document.querySelector('meta[name="demo-token"]').content;
 let state = null,
   busy = false,
   automatic = false;
-const goals = {
-  flights: 'Find one-way flights from Zurich to London on September 20, 2026, for one adult in economy. Stop when matching flight options are visible. Do not select or book a flight.',
-  travel: 'Find a Design stay in Lisbon with Free cancellation and open Casa Flora.',
-  research:
-    "Open the article about using finite choices to control browser agents.",
-};
+const terminal = ["done", "needs_review", "blocked", "uncertain", "error"];
 const escape = (value) =>
   String(value ?? "").replace(
     /[&<>"']/g,
@@ -31,9 +26,11 @@ async function call(name, body = {}) {
   return data;
 }
 function controls() {
-  const live = state?.page && !["done", "blocked"].includes(state.status);
+  const live = state?.page && !terminal.includes(state.status);
   $("start").disabled = busy;
-  $("scenario").disabled = busy;
+  $("target-tab").disabled = busy;
+  $("observe").disabled = busy || !state?.page;
+  $("resume").disabled = busy || !state?.page;
   $("goal").disabled = busy;
   $("choose").disabled = busy || !live;
   $("execute").disabled = busy || !state?.decision || !live;
@@ -60,7 +57,7 @@ async function perform(fn, label) {
     }
     $("error").textContent = error.message;
     $("error").hidden = false;
-    $("status").textContent = "Paused · needs attention";
+    $("status").textContent = "Paused - needs attention";
   } finally {
     busy = false;
     controls();
@@ -68,23 +65,30 @@ async function perform(fn, label) {
 }
 function render() {
   if (!state) return;
-  $("helper").textContent = `Text helper · ${state.text_model}`;
-  $("plan").innerHTML = (state.plan || [])
-    .map(
-      (goal, i) =>
-        `<div class="plan-step ${i === state.plan_index ? "current" : ""}"><span>${i < state.plan_index ? "✓" : i + 1}</span>${escape(goal)}</div>`,
-    )
-    .join("");
+  if (state.error) {
+    $("error").textContent = state.error;
+    $("error").hidden = false;
+  }
+  $("helper").textContent = `Text helper - ${state.text_model}`;
+  $("verification").textContent = state.verification?.passed
+    ? "Verified: requested training completed and evaluation metrics are visible."
+    : state.verification ? "Completion needs review. Check the evidence below."
+    : "Waiting for outcome evidence. The agent's completion choice is checked separately.";
+  $("evidence").textContent = JSON.stringify(state.verification || state.page?.piximi || {}, null, 2);
   const page = state.page,
     d =
       state.decision ||
       (state.status === "done" ? state.decisions?.at(-1) : null);
   const labels = {
     idle: "Ready to explore",
-    ready: "Page observed · ready for a decision",
-    predicted: "Choice ready · inspect or execute",
-    done: "Jev reports complete · inspect the page",
-    blocked: "Stopped · no supported next action",
+    ready: "Page observed - ready for a decision",
+    predicted: "Choice ready - inspect or execute",
+    done: "Outcome verified",
+    waiting: "Piximi is busy - waiting",
+    needs_review: "Finished - outcome needs review",
+    uncertain: "Action outcome uncertain - inspect before resuming",
+    error: "Paused after an error",
+    blocked: "Stopped - no supported next action",
   };
   $("status").textContent = labels[state.status] || state.status;
   if (!page) {
@@ -101,9 +105,9 @@ function render() {
   $("choice-title").textContent = d
     ? chosen?.label || d.choice
     : "Choose an action";
-  $("latency").textContent = d ? `${d.latency_ms} ms` : "—";
-  $("confidence").textContent = d?.target_confidence != null ? percent(d.target_confidence) : "—";
-  $("completion").textContent = d ? d.operation : "—";
+  $("latency").textContent = d ? `${d.latency_ms} ms` : "-";
+  $("confidence").textContent = d?.target_confidence != null ? percent(d.target_confidence) : "-";
+  $("completion").textContent = d ? d.operation : "-";
   $("ranking-note").textContent = d ? "Ranked by Jev" : "Unranked";
   const op = Object.entries(d?.operation_probabilities || {}).sort((a,b)=>b[1]-a[1]);
   $("operation-choices").innerHTML = op.map(([name,p]) =>
@@ -115,7 +119,7 @@ function render() {
   if (d) elements.sort((a,b)=>probability(b)-probability(a));
   $("choices").innerHTML = elements.map(e => {
     const p = probability(e);
-    return `<div class="choice ${selectedIndex === e.index ? 'best' : ''}" data-action="${escape(e.index)}"><span class="choice-id">[${escape(e.index)}]</span><div class="choice-label">${escape(e.label)}<small>${escape(e.role)} · ${escape(e.operations.join(' / '))}${e.value ? ' · '+escape(e.value) : ''}${e.checked !== undefined ? ' · checked '+escape(e.checked) : ''}</small>${p >= 0 ? `<div class="bar" style="--probability:${p*100}%"></div>` : ''}</div><span class="probability">${p >= 0 ? percent(p) : '—'}</span></div>`;
+    return `<div class="choice ${selectedIndex === e.index ? 'best' : ''}" data-action="${escape(e.index)}"><span class="choice-id">[${escape(e.index)}]</span><div class="choice-label">${escape(e.label)}<small>${escape(e.role)} - ${escape(e.operations.join(' / '))}${e.value ? ' - '+escape(e.value) : ''}${e.checked !== undefined ? ' - checked '+escape(e.checked) : ''}</small>${p >= 0 ? `<div class="bar" style="--probability:${p*100}%"></div>` : ''}</div><span class="probability">${p >= 0 ? percent(p) : '-'}</span></div>`;
   }).join('');
   const targets = new Map();
   for (const a of page.actions) if (a.rect && !targets.has(a.node)) targets.set(a.node, a);
@@ -128,11 +132,11 @@ function render() {
     ? state.history
         .map(
           (h) =>
-            `<div class="trace-row"><span class="number">${String(h.step).padStart(2, "0")}</span><div>${escape(h.action)}${h.text ? ` <b>“${escape(h.text)}”</b><small>${escape(h.text_helper)}</small>` : ""}</div><span class="time">${h.latency_ms} ms · ${percent(h.probability)}</span><span class="effect">${h.page_changed ? "Page changed" : "No change observed"}</span></div>`,
+            `<div class="trace-row"><span class="number">${String(h.step).padStart(2, "0")}</span><div>${escape(h.action)}${h.text ? ` <b>"${escape(h.text)}"</b><small>${escape(h.text_helper)}</small>` : ""}</div><span class="time">${h.latency_ms} ms - ${percent(h.probability)}</span><span class="effect">${h.outcome === "uncertain" ? "Outcome uncertain" : h.page_changed ? "Page changed" : "No change observed"}</span></div>`,
         )
         .join("")
     : '<p class="muted">Each executed action leaves an observed result.</p>';
-  $("step-count").textContent = `${state.history.length} actions · ${(state.elapsed_ms / 1000).toFixed(2)} s`;
+  $("step-count").textContent = `${state.history.length} actions - ${(state.elapsed_ms / 1000).toFixed(2)} s`;
   $("model-state").textContent = JSON.stringify(
     d?.request || {
       goal: state.goal,
@@ -150,44 +154,43 @@ $("task-form").addEventListener("submit", (event) => {
   automatic = false;
   perform(
     () =>
-      call("reset", { scenario: $("scenario").value, goal: $("goal").value }),
-    "Opening a fresh browser…",
+      call("reset", { target_id: $("target-tab").value, goal: $("goal").value }),
+    "Opening a fresh browser...",
   );
 });
-$("scenario").addEventListener("change", () => {
-  $("goal").value = goals[$("scenario").value];
-});
+$("observe").addEventListener("click", () => perform(() => call("observe"), "Refreshing Piximi..."));
+$("resume").addEventListener("click", () => perform(() => call("resume", {goal: $("goal").value}), "Observing before resuming..."));
 $("choose").addEventListener("click", () =>
-  perform(() => call("predict"), "Jev is comparing the actions…"),
+  perform(() => call("predict"), "Jev is comparing the actions..."),
 );
 $("execute").addEventListener("click", () =>
   perform(
     () => call("act", { fingerprint: state.page.fingerprint }),
-    "Executing the choice…",
+    "Executing the choice...",
   ),
 );
 $("auto").addEventListener("click", () =>
   perform(async () => {
     automatic = true;
     controls();
-    for (let i = 0; i < state.max_steps * 2 && automatic; i++) {
-      $("status").textContent = "Running…";
+    for (let i = 0; i < state.max_steps * 8 && automatic; i++) {
+      $("status").textContent = "Running...";
       if ($("pace").checked) {
         await call("predict");
         await new Promise(resolve => setTimeout(resolve, 450));
         if (!automatic) break;
-        await call("act", {fingerprint: state.page.fingerprint});
+        if (state.decision) await call("act", {fingerprint: state.page.fingerprint});
       } else {
         await call("tick");
       }
-      if (["done", "blocked"].includes(state.status)) break;
+      if (terminal.includes(state.status)) break;
     }
     automatic = false;
-  }, "Running the browser…"),
+  }, "Running the browser..."),
 );
 $("stop").addEventListener("click", () => {
   automatic = false;
-  $("status").textContent = "Pausing after the current request…";
+  $("status").textContent = "Pausing after the current request...";
   controls();
 });
 $("overlays").addEventListener("change", () => {
@@ -229,7 +232,7 @@ $("download").addEventListener("click", () => {
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
-  a.download = "typesafe-browser-trace.json";
+  a.download = "piximi-trace.json";
   a.click();
   URL.revokeObjectURL(url);
 });
@@ -242,3 +245,12 @@ fetch("/api/state")
   .catch(() => {
     $("status").textContent = "Cannot reach local demo server";
   });
+
+fetch("/api/tabs").then(r => r.json()).then(tabs => {
+  for (const tab of tabs) {
+    const option = document.createElement("option");
+    option.value = tab.targetId;
+    option.textContent = `Existing: ${tab.title || "Piximi"} (${tab.targetId.slice(0, 6)})`;
+    $("target-tab").append(option);
+  }
+}).catch(() => {});

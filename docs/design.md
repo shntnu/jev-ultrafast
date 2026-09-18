@@ -1,33 +1,33 @@
-# Dynamic operation + target
+# Piximi agent design
 
-The input is a natural-language goal. Every page observation builds an indexed table of accessible elements and their current values. One node receives one index, even when it supports both clicking and typing.
+The public input is one natural-language Piximi goal.
+The entry points always open Piximi or attach to an existing Piximi tab.
+The low-level browser adapter also supports local HTML for offline browser checks.
 
-One TypeSafe request asks which operation to perform and which target would be appropriate for each available operation. The executor consumes only the target head corresponding to the selected operation. This avoids serial operation-then-target calls and rejects targets incompatible with the operation. Dropdown targets include a code-owned option index.
+The loop is observation, indexed candidates, a TypeSafe operation/target decision, freshness validation, one execution, and a fresh observation.
+Piximi workflow knowledge is supplied to every relevant question.
+The text helper sees the goal, observed field, page context, and recent actions.
+Generated text is reused after a stale rejection only if that entire input is unchanged.
 
-Operation and target questions receive the same next-step rules. Target criteria include current values and checked/selected state. The questions run independently: a target cannot read the operation answer, so its premise explicitly names the operation it assumes.
+The DOM adapter reads rendered controls, tooltip-wrapper labels, field labels, and scrollable regions.
+It filters covered controls, hidden tabs, and external links.
+Each scroll direction is an operation-specific target associated with a real observed region.
+Code resolves coordinates at execution time.
 
-TYPE_TEXT sends the goal, selected field, visible page context, and recent actions to a small LLM. Its JSON must contain exactly one valid `text` value. The code does not extract quoted literals. A value can be reused after a stale decision only while the entire helper input is identical, and is discarded after a successful mutation.
+Piximi's loading and training indicators bypass model calls while busy, with a three-minute bound.
+The default U2OS contract excludes training until its requested epoch value has been observed and the field has lost focus.
+The model still discovers and selects controls; code does not navigate a fixed sequence.
 
-## Runtime
+Execution is logged before its resulting observation.
+A stale rejection happens before input and may be reobserved.
+Other mutation failures stop as uncertain, preserving the attempted action.
+Explicit resume observes the current page and clears the old choice; it never replays that action.
+Tabs are retained by the inspector and command-line runner for manual inspection and saving.
 
-One browser-side DOM snapshot supplies common HTML/ARIA roles, names, values, visible text, and executable targets. A WeakMap gives each actual node a code-owned identity; a Map keeps the live references used for execution. Replaced elements receive new identities, disconnected references are pruned, and navigation starts a new cache. These IDs are not CDP backend node IDs. Geometry is always read again immediately before input.
+The default U2OS verification checks fresh evaluation evidence plus previously observed training evidence from the same run.
+Nivo's rendered circles supply the training epoch count; chart labels alone do not prove completed training.
+Missing or incompatible evidence yields needs_review.
+Custom tasks always require outcome review.
 
-The model sees visible text. Background focus emulation keeps animation frames running in the owned tab. Screenshots are optional and disabled in library calls by default; `screenshots=True` or `record_dir=...` enables them. The inspector enables them explicitly. A continuous screencast can record a run separately.
-
-Freshness compares semantic state instead of counting DOM mutations. Before a click/select, guards compare the document, full URL, viewport, safe form values/states, selected target, and nearby form/dialog/row context. Text generation, typing, scrolling, waiting, and completion use a full semantic comparison. The executor rechecks target visibility, enabled state, geometry, and click occlusion. Scoped guards intentionally permit unrelated visible content to change; this is a practical heuristic, not proof that arbitrary page changes are irrelevant to the goal.
-
-Browser mutations are not retried by transport recovery. Completed execution is logged before the next observation, including when that observation encounters a navigation. An interrupted native-select evaluation stops because its change event may already have fired. Typing uses a browser select-all command followed by CDP text insertion, so existing input contents are replaced.
-
-The next observation waits for up to two animation frames or 50 ms after an interaction. Editable ARIA comboboxes instead wait for visible options, capped at 200 ms. This avoids paying for a prediction before autocomplete suggestions arrive. An explicit WAIT remains 100 ms; network loading is never fast-forwarded in the recording.
-
-## What changed after the first demo
-
-The initial prototype used five manually prepared steps and copied quoted strings. That proved finite-choice browser execution but did not demonstrate task decomposition or text generation. The current policy removes that shortcut and uses the original goal throughout. Operation/target distributions replace the old flat-choice/lookahead/Noul arrangement.
-
-The audit also found that treating every INPUT as editable misclassified checkboxes. Editable roles now control TYPE_TEXT availability. Tests cover checkbox/radio/button distinction, invalid operation/target outputs, stale decisions, text-cache invalidation, missing credentials, waits, and final-route verification.
-
-## Boundaries
-
-Sixty browser actions and 120 decision requests bound a run. Up to 250 action candidates are retained; truncated candidates cannot be selected. The service stays loopback-only, serializes inspector actions, and checks Host, Origin, and a local request token. Credentials remain server-side. Tabs share the existing Chrome profile.
-
-The policy is generic, but two websites do not establish broad reliability. Name resolution covers common labels, ARIA references, and text; it is not the browser's full accessibility algorithm. Shadow roots, frames, canvas, uploads, nested scrolling, pop-ups, and complex keyboard interactions can block progress. A valid action can still be wrong. Independent checks, rather than the model's DONE choice, determine whether the demonstrated task succeeded.
+The local inspector binds to loopback, validates Host and Origin, and requires a per-process token for mutation requests.
+API keys never reach the browser UI.

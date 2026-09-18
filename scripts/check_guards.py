@@ -20,7 +20,7 @@ def main():
     try:
         page = browser.observe(screenshot=False)
         action = next(a for a in page["actions"] if a["label"] == "Continue")
-        browser.evaluate("document.querySelector('#target').style.transform='translateX(200px)'")
+        browser.evaluate("document.querySelector('#target').style.transform='translateY(200px)'")
         assert browser.fresh(page), "Movement should use fresh geometry, not another model call"
         browser.act(action, page)
         assert browser.evaluate("window.clicks") == 1
@@ -53,11 +53,11 @@ def main():
                          "document.querySelector('#target').style.display='block'")
         page = browser.observe(screenshot=False)
         action = next(a for a in page["actions"] if a["label"] == "Delete account")
-        # A textless overlay does not alter the model's semantic state, but must block a click.
+        # A textless overlay removes covered controls and must block a click.
         browser.evaluate("const cover=document.createElement('div'); "
                          "cover.style.cssText='position:fixed;inset:0;z-index:9999;background:white'; "
                          "document.body.append(cover)")
-        assert browser.fresh(page)
+        assert not browser.fresh(page)
         try:
             browser.act(action, page)
         except (RuntimeError, StalePage):
@@ -124,6 +124,27 @@ def main():
         assert value == "Generated", repr(value)
         assert any(a.get("role") == "option" for a in page["actions"])
         passed.append("real text input waits for asynchronous combobox suggestions")
+        browser.evaluate("document.body.innerHTML=" + repr("""
+          <style>body{margin:0}#panel{height:220px;width:500px;overflow:auto;border:1px solid}
+          .space{height:500px}</style>
+          <span aria-label="Fit Model"><button><svg></svg></button></span>
+          <div id="panel"><button role="tab" aria-selected="true">Hyperparameters</button>
+          <div class="space"></div><input id="epochs" value="10"></div>
+        """))
+        page = browser.observe(screenshot=False)
+        assert any(a["label"] == "Fit Model" for a in page["actions"])
+        assert any(a.get("selected") == "true" for a in page["actions"])
+        assert not any(a["label"] == "epochs" for a in page["actions"])
+        scroll = next(a for a in page["actions"] if a["kind"] == "scroll" and a["delta"] > 0)
+        browser.act(scroll, page)
+        browser.observe(screenshot=False)
+        assert browser.evaluate("document.querySelector('#panel').scrollTop") > 0
+        passed.append("Piximi tooltip labels, selected tabs, and nested scroll execution")
+        browser.evaluate("document.querySelector('#panel').scrollTop=10000")
+        page = browser.observe(screenshot=False)
+        assert any(a["label"] == "epochs" and a["kind"] == "fill" for a in page["actions"])
+        field = next(a for a in page["actions"] if a["kind"] == "fill")
+        passed.append("clipped fields appear only after scrolling into their panel")
         browser.call("Page.navigate", url="about:blank")
         assert not browser.fresh(page, field)
         passed.append("navigation invalidates the old document")

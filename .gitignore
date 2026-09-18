@@ -8,3 +8,8 @@ artifacts/
 *.egg-info/
 
 dist/
+
+# Installer-owned third-party skills
+.agents/skills/typesafe-ai/
+.claude/skills/typesafe-ai
+.env~

@@ -1,0 +1,113 @@
+{
+  "date": "2026-09-18",
+  "goal": "Load the built-in human U2OS cells example project. Train an image classifier for 3 epochs using its existing labeled images and otherwise default settings, then open its evaluation results. Do not manually label images, accept predictions, or export files.",
+  "elapsed_ms": 9950,
+  "status": "done",
+  "actions": 9,
+  "jev_calls": 14,
+  "text_calls": 1,
+  "loading_polls": 4,
+  "jev_models": [
+    "jev-1.13.0"
+  ],
+  "text_models": [
+    "inception/mercury-2.5"
+  ],
+  "verification": {
+    "passed": true,
+    "checks": {
+      "piximi": true,
+      "u2os_project": true,
+      "requested_epochs": true,
+      "completed_epochs": true,
+      "evaluation_visible": true,
+      "numeric_metrics": true,
+      "class_metrics_present": true,
+      "idle": true
+    },
+    "evidence": {
+      "editing_epochs": false,
+      "url": "https://piximi.app/project",
+      "project": "Human U2OS cells - example project",
+      "epochs": "3",
+      "completed_epochs": 3,
+      "evaluation": true,
+      "metrics": {
+        "Accuracy": 0.5,
+        "Cross entropy": 4.605,
+        "Precision": 0,
+        "Recall": "N/A",
+        "F1-score": "N/A"
+      },
+      "busy": false,
+      "dialog": "Model Evaluation\n\nImage_Simple-CNN\n\nEvaluation Result\n\n1\n\nConfusion matrix:\n\nPositive Control (GRK)\nNegative Control (Untreated)\nPrediction\nPositive Control (GRK)\nNegative Control (Untreated)\nGround truth\n0\n1\n0\n1\n\nEvaluation metrics:\n\nAccuracy:\n0.500\nCross entropy:\n4.605\nPrecision:\n0.000\nRecall:\nN/A\nF1-score:\nN/A",
+      "status": "idle"
+    }
+  },
+  "executed_actions": [
+    {
+      "action": "Open Example Project",
+      "kind": "click",
+      "text": null,
+      "outcome": "executed",
+      "elapsed_ms": 600
+    },
+    {
+      "action": "Human U2OS-cells example project Human U2OS-cells example project  Human U2OS cells transfluor: This image set is of a Transfluor assay where an orphan GPCR is stably integrated into the b-arrestin GFP expressing U2OS cell line. After one hour incubation with a compound the cells were fixed with (formaldehyde).\nChannel 1: GFP; Channel 2: DNA https://bbbc.broadinstitute.org/BBBC016 CC-BY-3",
+      "kind": "click",
+      "text": null,
+      "outcome": "executed",
+      "elapsed_ms": 1158
+    },
+    {
+      "action": "Fit Model",
+      "kind": "click",
+      "text": null,
+      "outcome": "executed",
+      "elapsed_ms": 5217
+    },
+    {
+      "action": "Training Strategy",
+      "kind": "click",
+      "text": null,
+      "outcome": "executed",
+      "elapsed_ms": 5528
+    },
+    {
+      "action": "epochs",
+      "kind": "fill",
+      "text": "3",
+      "outcome": "executed",
+      "elapsed_ms": 6426
+    },
+    {
+      "action": "Training Strategy",
+      "kind": "click",
+      "text": null,
+      "outcome": "executed",
+      "elapsed_ms": 6809
+    },
+    {
+      "action": "Fit Classifier",
+      "kind": "click",
+      "text": null,
+      "outcome": "executed",
+      "elapsed_ms": 7429
+    },
+    {
+      "action": "Close",
+      "kind": "click",
+      "text": null,
+      "outcome": "executed",
+      "elapsed_ms": 8738
+    },
+    {
+      "action": "Evaluate Model",
+      "kind": "click",
+      "text": null,
+      "outcome": "executed",
+      "elapsed_ms": 9516
+    }
+  ],
+  "raw_trace": "artifacts/piximi-verified.json"
+}

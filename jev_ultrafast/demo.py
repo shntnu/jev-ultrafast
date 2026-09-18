@@ -1,6 +1,5 @@
 """Loopback-only inspector for the Jev browser agent."""
 
-import atexit
 import json
 import os
 import secrets
@@ -10,7 +9,7 @@ from pathlib import Path
 from urllib.parse import urlparse
 
 from .agent import Agent
-from .questions import MAX_STEPS
+from .questions import DEFAULT_GOAL, MAX_STEPS
 
 ROOT = Path(__file__).parent
 PORT = int(os.environ.get("TYPESAFE_DEMO_PORT", "8766"))
@@ -34,35 +33,17 @@ def response_state():
     return {**state, "text_model": os.environ.get("TEXT_MODEL", "deepseek-chat"), "max_steps": MAX_STEPS}
 
 
-def close_browser():
-    global AGENT
-    if AGENT:
-        AGENT.close()
-        AGENT = None
-
-
 def command(name, body):
     global AGENT
     if name == "reset":
-        scenario = body.get("scenario", "flights")
-        if scenario not in {"travel", "research", "flights"}:
-            raise ValueError("Unknown demo scenario")
-        goal = body.get("goal", "").strip()
-        if not goal or len(goal) > 2000:
-            raise ValueError("Enter 1–2,000 characters")
-        close_browser()
-        AGENT = Agent(
-            "https://www.google.com/travel/flights?hl=en"
-            if scenario == "flights"
-            else f"{ORIGIN}/fixture.html?scenario={scenario}",
-            goal,
-            screenshots=True,
-            record_dir=Path.cwd() / "artifacts" / "frames" if body.get("record") else None,
-        )
-        AGENT.state["scenario"] = scenario
+        goal = body.get("goal", DEFAULT_GOAL).strip()
+        if not goal or len(goal) > 6000:
+            raise ValueError("Enter 1-6,000 characters")
+        # Keep prior Piximi tabs and their unsaved analyses intact.
+        AGENT = Agent(goal, target_id=body.get("target_id") or None, screenshots=True)
     else:
         if AGENT is None:
-            raise ValueError("Start a demo first")
+            raise ValueError("Open Piximi first")
         AGENT.command(name, body)
     return response_state()
 
@@ -85,15 +66,18 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/state":
             with LOCK:
                 return self.send(200, json.dumps(response_state()))
-        if path == "/demo.mp4":
-            video = ROOT.parent / "docs" / "demo.mp4"
-            if video.exists():
-                return self.send(200, video.read_bytes(), "video/mp4")
+        if path == "/api/tabs":
+            from browser_harness.helpers import cdp
+            try:
+                tabs = [t for t in cdp("Target.getTargets")["targetInfos"]
+                        if t.get("type") == "page" and urlparse(t.get("url", "")).hostname == "piximi.app"]
+            except (RuntimeError, TimeoutError, OSError):
+                tabs = []
+            return self.send(200, json.dumps(tabs))
         files = {
             "/": ("index.html", "text/html"),
             "/app.js": ("app.js", "text/javascript"),
             "/style.css": ("style.css", "text/css"),
-            "/fixture.html": ("fixture.html", "text/html"),
         }
         if path not in files:
             return self.send(404, "Not found", "text/plain")
@@ -120,7 +104,7 @@ class Handler(BaseHTTPRequestHandler):
         except (ValueError, RuntimeError, TimeoutError) as error:
             self.send(400, json.dumps({"error": str(error)}))
         except Exception:
-            self.send(500, json.dumps({"error": "Local demo failed; no automatic retry. Reset to recover."}))
+            self.send(500, json.dumps({"error": "Request failed. Inspect before resuming; no action was retried."}))
         finally:
             LOCK.release()
 
@@ -130,9 +114,8 @@ class Handler(BaseHTTPRequestHandler):
 
 def main():
     load_environment()
-    atexit.register(close_browser)
     server = ThreadingHTTPServer(("127.0.0.1", PORT), Handler)
-    print(f"Jev Ultrafast: {ORIGIN}", flush=True)
+    print(f"Jev for Piximi: {ORIGIN}", flush=True)
     try:
         server.serve_forever()
     except KeyboardInterrupt:

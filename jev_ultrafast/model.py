@@ -48,7 +48,7 @@ def validate_choice(answer, ids):
 def action_space(actions):
     """One index per observed element; each operation has its own valid target choices."""
     elements, indices, targets, controls = [], {}, {}, {}
-    operations = {"click": "CLICK", "fill": "TYPE_TEXT", "select": "SELECT"}
+    operations = {"click": "CLICK", "fill": "TYPE_TEXT", "select": "SELECT", "scroll": "SCROLL"}
     for action in actions:
         kind = action["kind"]
         if kind not in operations:
@@ -59,7 +59,7 @@ def action_space(actions):
             index = str(len(elements) + 1)
             indices[node] = index
             element = {k: action[k] for k in ("role", "value", "checked", "selected", "expanded") if k in action}
-            element.update(index=index, label=action["label"].split(" → ")[0], operations=[])
+            element.update(index=index, label=action["label"].split(" -> ")[0], operations=[])
             if kind == "select":
                 element["value"] = action.get("current_value", "")
                 element["options"] = []
@@ -70,7 +70,7 @@ def action_space(actions):
         element = elements[int(index) - 1]
         if operation not in element["operations"]:
             element["operations"].append(operation)
-        target = index
+        target = index if kind != "scroll" else f"{index}:{'down' if action['delta'] > 0 else 'up'}"
         if kind == "select":
             target = f"{index}:{len(element['options']) + 1}"
             element["options"].append({"index": target, "label": action["label"], "value": action["value"]})
@@ -81,9 +81,10 @@ def action_space(actions):
 def choose(state, goal, history):
     elements, targets, controls = action_space(state["actions"])
     labels = {
-        "CLICK": "Click an element, button, menu option, autocomplete suggestion, or calendar day.",
+        "CLICK": "Click a Piximi button, tab, menu option, or control.",
         "TYPE_TEXT": "Enter or replace text in an editable field. A small LLM will supply the value from the goal.",
         "SELECT": "Select an observed dropdown value.",
+        "SCROLL": "Scroll an observed panel or dialog up or down.",
     }
     operations = {key: labels[key] for key in targets}
     operations.update({key: value["label"] for key, value in controls.items()})
@@ -109,6 +110,7 @@ def choose(state, goal, history):
         "state": {
             "page": {k: state[k] for k in ("url", "title", "text")},
             "elements": elements,
+            "piximi": state.get("piximi", {}),
             "recent_actions": [
                 {k: h.get(k) for k in ("action", "kind", "text", "page_changed")} for h in history[-10:]
             ],
